@@ -1,0 +1,11 @@
+{
+    "python.defaultInterpreterPath": "${workspaceFolder}/backend/venv/bin/python",
+    "postman.settings.dotenv-detection-notification-visibility": false,
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.extraPaths": ["./backend"],
+    "python.analysis.useLibraryCodeForTypes": true,
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportCallIssue": "none"
+    }
+
+}
