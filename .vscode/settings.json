@@ -6,6 +6,15 @@
     "python.analysis.useLibraryCodeForTypes": true,
     "python.analysis.diagnosticSeverityOverrides": {
         "reportCallIssue": "none"
-    }
+    },
 
+    "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true,
+    "**/*.pyo": true
+  },
+  "search.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true
+  }
 }
