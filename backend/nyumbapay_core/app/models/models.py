@@ -19,7 +19,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 
 from nyumbapay_core.app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -40,7 +40,18 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     __tablename__ = "users"
 
+    clerk_user_id: Mapped[str] = mapped_column(
+        String(255),
+        unique=True,
+        nullable=False,
+        comment="Clerk user ID e.g. user_2abc... — the auth identity",
+    )
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+
+    @validates("email")
+    def _normalize_email(self, key: str, value: str) -> str:
+        return value.lower().strip()
+
     password_hash: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
@@ -60,7 +71,10 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         uselist=False,
     )
 
-    __table_args__ = (Index("ix_users_email", "email", unique=True),)
+    __table_args__ = (
+        Index("ix_users_email", "email", unique=True),
+        Index("ix_users_clerk_user_id", "clerk_user_id", unique=True),
+    )
 
 
 class Landlord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -299,6 +313,11 @@ class Lease(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         nullable=False,
         comment="M-PESA account reference e.g PALM-A3 ",
     )
+
+    @validates("account_reference")
+    def _normalize_account_reference(self, key: str, value: str) -> str:
+        return value.upper().strip()
+
     status: Mapped[LeaseStatus] = mapped_column(
         String(20),
         nullable=False,
