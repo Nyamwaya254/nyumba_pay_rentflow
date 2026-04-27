@@ -36,7 +36,9 @@ from nyumbapay_core.app.models.enums import (
 
 
 class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
-    """Authentication principal.Landlord can have one user account"""
+    """Authentication principal.Landlord can have one user account.
+    Linked to a Clerk user account
+    """
 
     __tablename__ = "users"
 
@@ -52,10 +54,10 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     def _normalize_email(self, key: str, value: str) -> str:
         return value.lower().strip()
 
-    password_hash: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-    )
+    # password_hash: Mapped[str] = mapped_column(
+    #     String(255),
+    #     nullable=False,
+    # )
     role: Mapped[UserRole] = mapped_column(
         String(20), nullable=False, default=UserRole.LANDLORD
     )

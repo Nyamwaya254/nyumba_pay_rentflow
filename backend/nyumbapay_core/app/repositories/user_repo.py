@@ -42,14 +42,12 @@ class UserRepository:
         self,
         clerk_user_id: str,
         email: str,
-        password_hash: str,
         role: UserRole = UserRole.LANDLORD,
     ) -> User:
         """Create a new user"""
         user = User(
             clerk_user_id=clerk_user_id,
             email=email.lower().strip(),
-            password_hash=password_hash,
             role=role,
         )
         self._session.add(user)
