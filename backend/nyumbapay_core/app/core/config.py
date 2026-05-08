@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     clerk_webhook_secret: str = Field(min_length=10)
     clerk_jwks_url: str
 
-    # payment servuce
+    # payment service
     payment_service_url: str
     payment_service_api_key: str = Field(min_length=32)
     payment_events_channel: str = ""

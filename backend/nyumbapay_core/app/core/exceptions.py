@@ -92,6 +92,15 @@ class BusinessRuleError(DomainError):
     error_code: str = "BUSINESS_RULE_VIOLATION"
 
 
+@dataclass
+class PaymentServiceClientError(DomainError):
+    """4xx -payment service rejected the request. Do not retry"""
+
+    message: str = "Payment service rejected request"
+    status_code: int = 422
+    error_code: str = "PAYMENT_SERVICE_CLIENT_ERROR"
+
+
 # infrastructure errors
 
 
