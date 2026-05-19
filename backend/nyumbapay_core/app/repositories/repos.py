@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator
 from datetime import date, datetime
 from decimal import Decimal
@@ -610,6 +611,65 @@ class ReportRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def get_buildings_with_stats(
+        self,
+        landlord_id: uuid.UUID,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[dict], int]:
+        """Single-query fetch of paginated buildings with unit counts and the currently effective charge config via a LATERAL
+        subquery.
+        Uses ix_building_charge_configs_effective for the lateral lookup
+        """
+
+        offset = (page - 1) * page_size
+
+        stmt = text("""
+        SELECT
+            b.id,
+            b.landlord_id,
+            b.name,
+            b.address,
+            b.city,
+            b.code,
+            b.created_at,
+            COUNT(u.id)                                          AS total_units,
+            COUNT(u.id) FILTER (WHERE u.status = 'occupied')    AS occupied_units,
+            COALESCE(cfg.water_rate_per_unit, 0)                AS water_rate_per_unit,
+            COALESCE(cfg.garbage_charge,      500)              AS garbage_charge
+        FROM buildings b
+        LEFT JOIN units u
+               ON u.building_id = b.id
+        LEFT JOIN LATERAL (
+            SELECT water_rate_per_unit, garbage_charge
+            FROM   building_charge_configs
+            WHERE  building_id = b.id
+            ORDER  BY effective_from DESC
+            LIMIT  1
+        ) cfg ON true
+        WHERE b.landlord_id = :landlord_id
+        GROUP BY
+            b.id, b.landlord_id, b.name, b.address,
+            b.city, b.code, b.created_at,
+            cfg.water_rate_per_unit, cfg.garbage_charge
+        ORDER BY b.created_at DESC
+        LIMIT  :limit
+        OFFSET :offset
+    """)
+        count_stmt = text("""
+        SELECT COUNT(*) FROM buildings WHERE landlord_id = :landlord_id
+    """)
+
+        rows, total = await asyncio.gather(
+            self._session.execute(
+                stmt,
+                {"landlord_id": landlord_id, "limit": page_size, "offset": offset},
+            ),
+            self._session.scalar(count_stmt, {"landlord_id": landlord_id}),
+        )
+
+        return [dict(row._mapping) for row in rows], total or 0
 
     async def gef_defaulters(self, landlord_id: uuid.UUID, period: str) -> list[dict]:
         """Return all tenants with  upaid/partial ledger entries for
