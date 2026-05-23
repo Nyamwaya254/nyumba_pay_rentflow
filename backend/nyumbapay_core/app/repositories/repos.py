@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import asyncpg
+
 from collections.abc import AsyncGenerator
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Sequence
 import uuid
-from sqlalchemy import case, func, select, text, update
+from sqlalchemy import case, func, literal, select, text, update
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
+from nyumbapay_core.app.core.exceptions import ConflictError
 from nyumbapay_core.app.models.enums import (
     LeaseStatus,
     LedgerStatus,
@@ -344,6 +348,18 @@ class TenantRepository:
         )
         return result.scalar_one_or_none()
 
+    async def exists(self, tenant_id: uuid.UUID) -> bool:
+        """Checks whether a tenant-record exists by PK"""
+
+        stmt = (
+            select(literal(1))
+            .select_from(Tenant)
+            .where(Tenant.id == tenant_id)
+            .limit(1)
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar() is not None
+
     async def list_by_landlord(
         self, landlord_id: uuid.UUID, page: int, page_size: int
     ) -> tuple[Sequence[Tenant], int]:
@@ -455,10 +471,41 @@ class LeaseRepository:
             start_date=start_date,
             end_date=end_date,
             account_reference=account_reference,
+            status=LeaseStatus.ACTIVE,
         )
         self._session.add(lease)
-        await self._session.flush()
-        await self._session.refresh(lease)
+        try:
+            await self._session.flush()
+            await self._session.refresh(lease)
+        except IntegrityError as exc:
+            await self._session.rollback()
+
+            orig = exc.orig
+            if (
+                isinstance(orig, asyncpg.UniqueViolationError)
+                and getattr(orig, "constraint_name", None)
+                == "uq_leases_account_reference"
+            ):
+                logger.warning(
+                    "account_reference_collision",
+                    account_reference=account_reference,
+                    unit_id=str(unit_id),
+                )
+                raise ConflictError(
+                    message=f"Account reference '{account_reference}' already exists.",
+                    field="account_reference",
+                    conflicting_value=account_reference,
+                ) from exc
+
+            # Different integrity violation
+            # Re-raise so it surfaces as a 500 with full context.
+            logger.error(
+                "lease_create_integrity_error",
+                error=str(exc),
+                unit_id=str(unit_id),
+            )
+            raise
+
         return lease
 
     async def terminate(self, lease_id: uuid.UUID, terminated_at) -> None:

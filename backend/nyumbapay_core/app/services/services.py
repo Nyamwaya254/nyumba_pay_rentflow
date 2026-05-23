@@ -1,31 +1,45 @@
 """Business services - Nyumbapay core"""
 
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 import uuid
 import structlog
 
 from nyumbapay_core.app.core.exceptions import (
+    BusinessRuleError,
     ConflictError,
     ForbiddenError,
     NotFoundError,
     PaymentServiceError,
 )
-from nyumbapay_core.app.models.enums import UserRole
+from nyumbapay_core.app.models.enums import UnitStatus, UserRole
 from nyumbapay_core.app.repositories.repos import (
     BuildingRepository,
     LandlordRepository,
+    LeaseRepository,
+    LedgerRepository,
     ReportRepository,
+    TenantRepository,
+    UnitRepository,
+    WaterReadingRepository,
 )
 from nyumbapay_core.app.repositories.user_repo import UserRepository
+from nyumbapay_core.app.models.models import Landlord, Lease, User
 from nyumbapay_core.app.schemas.validation import (
     BuildingDetailResponse,
     CreateBuildingRequest,
     CreateLandlordRequest,
+    CreateLeaseRequest,
+    CreateTenantRequest,
+    CreateUnitRequest,
     LandlordListResponse,
     LandlordResponse,
+    LeaseResponse,
     PaginatedResponse,
+    TenantResponse,
+    UnitResponse,
     UpdateLandlordRequest,
+    UpdateUnitRequest,
 )
 from nyumbapay_core.app.services.clerk_service import ClerkService
 from nyumbapay_core.app.services.payment_client import PaymentServiceClient
@@ -213,14 +227,14 @@ class BuildingService:
         building_repo: BuildingRepository,
         report_repo: ReportRepository,
         landlord_repo: LandlordRepository,
-        current_user,
+        current_user: User,
     ) -> None:
         self._building_repo = building_repo
         self._report_repo = report_repo
         self._landlord_repo = landlord_repo
         self._user = current_user
 
-    async def _get_landlord(self):
+    async def _get_landlord(self) -> Landlord:
         landlord = await self._landlord_repo.get_by_user_id(self._user.id)
         if not landlord:
             raise NotFoundError(message="Landlord profile not found for this user")
@@ -300,3 +314,292 @@ class BuildingService:
             total_units=total,
             occupied_units=occupied,
         )
+
+
+# unit service
+class UnitService:
+    """Business logic for rentable units inside a building"""
+
+    def __init__(
+        self,
+        unit_repo: UnitRepository,
+        landlord_repo: LandlordRepository,
+        building_repo: BuildingRepository,
+        current_user: User,
+    ) -> None:
+        self._units = unit_repo
+        self._landlords = landlord_repo
+        self._buildings = building_repo
+        self._user = current_user
+
+    async def _assert_building_owned(self, building_id: uuid.UUID) -> None:
+        """Raise NotFoundError if building does not exist or owner mismatch"""
+        building = await self._buildings.get_by_id(building_id)
+        if not building:
+            raise NotFoundError(message=f"Building {building_id} not found")
+        landlord = await self._landlords.get_by_user_id(self._user.id)
+        if not landlord:
+            # If the current user has no landlord profile, treat as not found for this context
+            raise NotFoundError(message="Landlord profile not found for this user")
+        if building.landlord_id != landlord.id:
+            raise ForbiddenError(message="Building does not belong to your account")
+
+    async def create(
+        self, building_id: uuid.UUID, request: CreateUnitRequest
+    ) -> UnitResponse:
+        """Add a new unit to a building. Enforces unique unit_number within the building"""
+
+        await self._assert_building_owned(building_id)
+        if await self._units.unit_number_exists(building_id, request.unit_number):
+            raise ConflictError(message=f"Unit {request.unit_number} already exists")
+        unit = await self._units.create(
+            building_id,
+            request.unit_number,
+            request.rent_amount,
+            request.floor,
+        )
+        return UnitResponse.model_validate(unit)
+
+    async def get(self, unit_id: uuid.UUID) -> UnitResponse:
+        """Return unit details"""
+        unit = await self._units.get_by_id(unit_id)
+        if not unit:
+            raise NotFoundError(message=f"Unit {unit_id} not found")
+        await self._assert_building_owned(unit.building_id)
+        return UnitResponse.model_validate(unit)
+
+    async def list(
+        self,
+        building_id: uuid.UUID,
+        page: int,
+        page_size: int,
+        status: UnitStatus | None = UnitStatus.VACANT,
+    ):
+        """List units in a building, optionally filtered by status (vacant/occupied)"""
+        await self._assert_building_owned(building_id)
+        items, total = await self._units.list_by_building(
+            building_id,
+            status,
+            page,
+            page_size,
+        )
+        return PaginatedResponse(
+            items=[UnitResponse.model_validate(u) for u in items],
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    async def update(
+        self, unit_id: uuid.UUID, request: UpdateUnitRequest
+    ) -> UnitResponse:
+        """Update unit fields i.e rent_amount"""
+        unit = await self._units.get_by_id(unit_id)
+        if not unit:
+            raise NotFoundError(message=f"Unit {unit_id} not found")
+        await self._assert_building_owned(unit.building_id)
+        updates = request.model_dump(exclude_unset=True)
+        if updates:
+            await self._units.update(unit_id, **updates)
+        return await self.get(unit_id)
+
+
+# Tenant Service
+class TenantService:
+    """Business logic for tenants scoped to the authenticated landlord"""
+
+    def __init__(
+        self,
+        tenant_repo: TenantRepository,
+        landlord_repo: LandlordRepository,
+        current_user: User,
+    ) -> None:
+        self._tenant_repo = tenant_repo
+        self._landlord_repo = landlord_repo
+        self._user = current_user
+
+    async def _get_landlord(self) -> Landlord:
+        landlord = await self._landlord_repo.get_by_user_id(self._user.id)
+        if not landlord:
+            raise NotFoundError(message="Landlord profile not found for this user")
+        return landlord
+
+    async def create(self, request: CreateTenantRequest) -> TenantResponse:
+        """Register a new tenant under the landlord's scope"""
+        landlord = await self._get_landlord()
+        if await self._tenant_repo.national_id_exists(landlord.id, request.national_id):
+            raise ConflictError(
+                message=f"National ID {request.national_id} already registered"
+            )
+        tenant = await self._tenant_repo.create(
+            landlord.id,
+            request.full_name,
+            request.phone,
+            request.national_id,
+            request.email,
+        )
+        return TenantResponse.model_validate(tenant)
+
+    async def list(self, page: int, page_size: int) -> PaginatedResponse:
+        landlord = await self._get_landlord()
+        items, total = await self._tenant_repo.list_by_landlord(
+            landlord.id, page, page_size
+        )
+        return PaginatedResponse(
+            items=[TenantResponse.model_validate(tenant) for tenant in items],
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    async def get(self, tenant_id: uuid.UUID) -> TenantResponse:
+        tenant = await self._tenant_repo.get_by_id(tenant_id)
+        if not tenant:
+            raise NotFoundError(message=f"Tenant {tenant_id} not found")
+        landlord = await self._get_landlord()
+        if tenant.landlord_id != landlord.id:
+            raise ForbiddenError(message="Tenant does not belong to your account")
+        return TenantResponse.model_validate(tenant)
+
+    async def update(
+        self, tenant_id: uuid.UUID, request: CreateTenantRequest
+    ) -> TenantResponse:
+        await self.get(tenant_id)
+        updates = request.model_dump(exclude_unset=True)
+        if updates:
+            await self._tenant_repo.update(tenant_id, **updates)
+        return await self.get(tenant_id)
+
+
+# Lease Service
+class LeaseService:
+    """Core business logic for creating, terminating leases, and viewing ledger entries
+    This service:
+        - Generates the unique M‑Pesa account_reference (BUILDINGCODE-UNITNUMBER).
+        - Seeds the first water reading (required initial meter value).
+        - Creates the first rent ledger entry for the current period.
+        - Updates unit status to OCCUPIED.
+        - Provides ledger history.
+    """
+
+    def __init__(
+        self,
+        lease_repo: LeaseRepository,
+        unit_repo: UnitRepository,
+        tenant_repo: TenantRepository,
+        building_repo: BuildingRepository,
+        ledger_repo: LedgerRepository,
+        water_readings_repo: WaterReadingRepository,
+        current_user: User,
+    ):
+        self._leases = lease_repo
+        self._units = unit_repo
+        self._tenants = tenant_repo
+        self._buildings = building_repo
+        self._water_readings = water_readings_repo
+        self._ledger = ledger_repo
+        self._user = current_user
+
+    def _current_period(self) -> str:
+        """Return YYYY‑MM string for the current UTC month"""
+        now = datetime.now(tz=timezone.utc)
+        return f"{now.year}-{now.month:02d}"
+
+    async def create(
+        self, unit_id: uuid.UUID, request: CreateLeaseRequest
+    ) -> LeaseResponse:
+        """Start a new lease on a vacant unit"""
+        unit = await self._units.get_by_id(unit_id)
+        if not unit:
+            raise NotFoundError(message=f"Unit {unit_id} not found")
+        if unit.status == UnitStatus.OCCUPIED:
+            raise BusinessRuleError(message="Unit is already occupied")
+        if not await self._tenants.exists(request.tenant_id):
+            raise NotFoundError(message=f"Tenant {request.tenant_id} not found")
+        if await self._leases.get_active_by_unit(unit_id):
+            raise BusinessRuleError(message="Unit already has an active lease")
+
+        # build the account reference: BUILDINGCODE-UNITNUMBER
+        building = await self._buildings.get_by_id(unit.building_id)
+        if not building:
+            raise NotFoundError(message=f"Building {unit.building} not found")
+        base_ref = f"{building.code}-{unit.unit_number}".upper()
+
+        lease = await self._create_lease_with_ref(
+            unit_id=unit_id,
+            request=request,
+            base_ref=base_ref,
+            rent_amount=unit.rent_amount,
+        )
+        # set status
+        await self._units.set_status(unit_id, UnitStatus.OCCUPIED)
+
+        # seed water reading with initial meter value(required on first lease)
+        period = self._current_period()
+        await self._water_readings.create(
+            unit_id=unit_id,
+            lease_id=lease.id,
+            period=period,
+            previous_reading=request.initial_water_reading,
+            current_reading=request.initial_water_reading,
+            rate_per_unit=Decimal("0"),
+            entered_by=self._user.id,
+            entered_at=datetime.now(tz=timezone.utc),
+        )
+        # create first ledger entry for current period
+        cfg = await self._buildings.get_latest_charge_config(unit.building_id)
+        if not cfg:
+            raise BusinessRuleError(
+                message=f"Building {unit.building_id} has no charge configuration"
+            )
+        await self._ledger.create(
+            lease_id=lease.id,
+            period=period,
+            base_rent=unit.rent_amount,
+            garbage_charge=cfg.garbage_charge,
+            previous_balance=Decimal("0"),
+        )
+        logger.info(
+            "lease_created",
+            lease_id=str(lease.id),
+            account_ref=lease.account_reference,
+            unit_id=str(unit_id),
+        )
+        return LeaseResponse.model_validate(lease)
+
+    async def _create_lease_with_ref(
+        self,
+        unit_id: uuid.UUID,
+        request: CreateLeaseRequest,
+        base_ref: str,
+        rent_amount: Decimal,
+    ) -> Lease:
+        """Attempt lease creation ,retrying once with a suffixed reference if the base reference collides"""
+        try:
+            return await self._leases.create(
+                unit_id=unit_id,
+                tenant_id=request.tenant_id,
+                rent_amount=rent_amount,
+                deposit_amount=request.deposit_amount,
+                start_date=request.start_date,
+                end_date=request.end_date,
+                account_reference=base_ref,
+            )
+        except ConflictError:
+            # Base ref collided. Generate a suffixed fallback using a fresh UUID
+            fallback_ref = f"{base_ref}-{uuid.uuid4().hex[:6].upper()}"
+            logger.info(
+                "account_reference_fallback",
+                base_ref=base_ref,
+                fallback_ref=fallback_ref,
+                unit_id=str(unit_id),
+            )
+            return await self._leases.create(
+                unit_id=unit_id,
+                tenant_id=request.tenant_id,
+                rent_amount=rent_amount,
+                deposit_amount=request.deposit_amount,
+                start_date=request.start_date,
+                end_date=request.end_date,
+                account_reference=fallback_ref,
+            )

@@ -103,8 +103,5 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     if _session_factory is None:
         raise RuntimeError("Database not initialised")
     async with _session_factory() as session:
-        try:
+        async with session.begin():
             yield session
-        except Exception:
-            await session.rollback()
-            raise
