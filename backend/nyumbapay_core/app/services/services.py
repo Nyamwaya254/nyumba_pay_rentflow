@@ -12,7 +12,7 @@ from nyumbapay_core.app.core.exceptions import (
     NotFoundError,
     PaymentServiceError,
 )
-from nyumbapay_core.app.models.enums import UnitStatus, UserRole
+from nyumbapay_core.app.models.enums import LeaseStatus, UnitStatus, UserRole
 from nyumbapay_core.app.repositories.repos import (
     BuildingRepository,
     LandlordRepository,
@@ -35,6 +35,7 @@ from nyumbapay_core.app.schemas.validation import (
     LandlordListResponse,
     LandlordResponse,
     LeaseResponse,
+    LedgerEntryResponse,
     PaginatedResponse,
     TenantResponse,
     UnitResponse,
@@ -603,3 +604,36 @@ class LeaseService:
                 end_date=request.end_date,
                 account_reference=fallback_ref,
             )
+
+    async def terminate(self, lease_id: uuid.UUID) -> None:
+        """Terminate an active lease, set unit back to VACANT"""
+        lease = await self._leases.get_by_id(lease_id)
+        if not lease:
+            raise NotFoundError(message=f"Lease {lease_id} not found")
+        if lease.status == LeaseStatus.TERMINATED:
+            raise BusinessRuleError(message="Lease is already terminated")
+        now = datetime.now(tz=timezone.utc)
+        await self._leases.terminate(lease_id, now)
+        await self._units.set_status(lease.unit_id, UnitStatus.VACANT)
+        logger.info("lease_terminated", lease_id=str(lease_id))
+
+    async def get_ledger(self, lease_id: uuid.UUID) -> list[LedgerEntryResponse]:
+        """Return all rent ledger entries for a lease, ordered by period descending"""
+        entries = await self._ledger.list_by_lease(lease_id)
+        return [
+            LedgerEntryResponse(
+                id=e.id,
+                lease_id=e.lease_id,
+                period=e.period,
+                base_rent=e.base_rent,
+                water_charge=e.water_charge,
+                garbage_charge=e.garbage_charge,
+                previous_balance=e.previous_balance,
+                total_amount_due=e.total_amount_due,
+                amount_paid=e.amount_paid,
+                balance=e.balance,
+                status=e.status.value,
+                water_reading_entered=e.water_reading_id is not None,
+            )
+            for e in entries
+        ]
