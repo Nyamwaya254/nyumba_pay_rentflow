@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-import asyncpg
+import asyncpg  # type: ignore
 
 from collections.abc import AsyncGenerator
 from datetime import date, datetime
