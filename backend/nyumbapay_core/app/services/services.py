@@ -18,6 +18,7 @@ from app.repositories.repos import (
     LandlordRepository,
     LeaseRepository,
     LedgerRepository,
+    PaymentRepository,
     ReportRepository,
     TenantRepository,
     UnitRepository,
@@ -33,11 +34,17 @@ from app.schemas.validation import (
     CreateTenantRequest,
     CreateUnitRequest,
     CreateWaterReadingsRequest,
+    DefaulterResponse,
     LandlordListResponse,
     LandlordResponse,
     LeaseResponse,
     LedgerEntryResponse,
+    ManualMatchRequest,
+    OccupancyResponse,
     PaginatedResponse,
+    PaymentListResponse,
+    PaymentResponse,
+    RevenueResponse,
     TenantResponse,
     UnitResponse,
     UpdateLandlordRequest,
@@ -727,3 +734,139 @@ class WaterReadingService:
             charge=str(reading.water_charge),
         )
         return WaterReadingsResponse.model_validate(reading)
+
+
+class ReconciliationService:
+    """Handle payment reconciliation – list unmatched payments and manually match them to a lease/period"""
+
+    def __init__(
+        self,
+        payment_repo: PaymentRepository,
+        ledger_repo: LedgerRepository,
+        lease_repo: LeaseRepository,
+        landlord_repo: LandlordRepository,
+        current_user: User,
+    ) -> None:
+        self._payments = payment_repo
+        self._ledger = ledger_repo
+        self._leases = lease_repo
+        self._landlords = landlord_repo
+        self._user = current_user
+
+    async def _get_landlord(self):
+        """GEt landlord record for currnt user"""
+        landlord = await self._landlords.get_by_user_id(self._user.id)
+        if not landlord:
+            raise NotFoundError(message="Landlord profile not found")
+        return landlord
+
+    async def list_payments(
+        self, reconciled: bool | None, page: int, page_size: int
+    ) -> PaymentListResponse:
+        """List payments(optionally filtered by reconciliation status) for the landlord"""
+        landlord = await self._get_landlord()
+        items, total = await self._payments.list_by_landlord(
+            landlord.id, reconciled, page, page_size
+        )
+        return PaymentListResponse(
+            items=[PaymentResponse.model_validate(p) for p in items],
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    async def manual_match(
+        self, payment_id: uuid.UUID, req: ManualMatchRequest
+    ) -> PaymentResponse:
+        """Manually reconcile a payment with a lease and a specific period
+        Steps:
+            1. Verify payment belongs to the landlord and is not already reconciled.
+            2. Verify lease exists.
+            3. Apply payment amount to the specified period's ledger entry.
+            4. Mark payment as reconciled.
+        """
+
+        landlord = await self._get_landlord()
+        payment = await self._payments.get_by_id(payment_id)
+        if not payment:
+            raise NotFoundError(message=f"Payment {payment_id} not found")
+        if payment.landlord_id != landlord.id:
+            raise ForbiddenError(message="Payment does not belong to your account")
+        if payment.is_reconciled:
+            raise BusinessRuleError(message="Payment already reconciled")
+
+        lease = await self._leases.get_by_id(req.lease_id)
+        if not lease:
+            raise NotFoundError(message=f"Lease {req.lease_id} not found")
+        await self._ledger.apply_payment(req.lease_id, req.period, payment.amount)
+        await self._payments.reconcile(payment_id, req.lease_id, req.period)
+
+        logger.info(
+            "payment_manually_reconciled",
+            payment_id=str(payment_id),
+            lease_id=str(req.lease_id),
+        )
+        payment = await self._payments.get_by_id(payment_id)
+        return PaymentResponse.model_validate(payment)
+
+
+class ReportService:
+    """Analytics and business intelligence reports for a landlord"""
+
+    def __init__(
+        self,
+        repo: ReportRepository,
+        landlord_repo: LandlordRepository,
+        current_user: User,
+    ) -> None:
+        self._repo = repo
+        self._landlords = landlord_repo
+        self._user = current_user
+
+    async def _landlord_id(self) -> uuid.UUID:
+        landlord = await self._landlords.get_by_user_id(self._user.id)
+        if not landlord:
+            raise NotFoundError(message="Landlord profile not found")
+        return landlord.id
+
+    async def defaulters(self, period: str) -> list[DefaulterResponse]:
+        """List all tenants who have not paid their full rent for the given period"""
+        landlord_id = await self._landlord_id()
+        rows = await self._repo.gef_defaulters(landlord_id, period)
+        return [DefaulterResponse(**r) for r in rows]
+
+    async def occupancy(self) -> list[OccupancyResponse]:
+        """Calculate occupancy rates per building (total units, occupied, vacant, percentage)"""
+        landlord_id = await self._landlord_id()
+        rows = await self._repo.get_occupancy(landlord_id)
+        result = []
+        for r in rows:
+            total = r["total_units"]
+            occupied = r["occupied"]
+            result.append(
+                OccupancyResponse(
+                    building_id=r["building_id"],
+                    building_name=r["building_name"],
+                    total_units=total,
+                    occupied=occupied,
+                    vacant=r["vacant"],
+                    occupancy_rate=round(occupied / total * 100, 1) if total else 0.0,
+                )
+            )
+        return result
+
+    async def revenue(self, period: str) -> RevenueResponse:
+        """Summarise revenue for a period: expected, collected, outstanding, collection rate"""
+        landlord_id = await self._landlord_id()
+        row = await self._repo.get_revenue(landlord_id, period)
+        expected = Decimal(str(row.get("expected_revenue", 0)))
+        collected = Decimal(str(row.get("collected_revenue", 0)))
+        outstanding = Decimal(str(row.get("outstanding", 0)))
+        rate = round(float(collected / expected * 100), 1) if expected else 0.0
+        return RevenueResponse(
+            period=period,
+            expected_revenue=expected,
+            collected_revenue=collected,
+            outstanding=outstanding,
+            collection_rate=rate,
+        )
