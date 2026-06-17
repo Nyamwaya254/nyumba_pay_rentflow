@@ -654,6 +654,7 @@ class WaterReadingService:
     def __init__(
         self,
         reading_repo: WaterReadingRepository,
+        lease_repo: LeaseRepository,
         unit_repo: UnitRepository,
         building_repo: BuildingRepository,
         ledger_repo: LedgerRepository,
@@ -662,6 +663,7 @@ class WaterReadingService:
         self._readings = reading_repo
         self._units = unit_repo
         self._buildings = building_repo
+        self._lease = lease_repo
         self._ledger = ledger_repo
         self._user = current_user
 
@@ -669,4 +671,59 @@ class WaterReadingService:
         self, unit_id: uuid.UUID, req: CreateWaterReadingsRequest
     ) -> WaterReadingsResponse:
         """Submit a water reading"""
-        pass
+        unit = await self._units.get_by_id(unit_id)
+        if not unit:
+            raise NotFoundError(message=f"Unit {unit_id} not found")
+        if await self._readings.get_by_unit_by_specific_period(unit_id, req.period):
+            raise ConflictError(
+                message=f"Reading for {req.period} already entered for this unit"
+            )
+
+        # get previous reading(auto-populate)
+        last = await self._readings.get_latest_by_unit(unit_id)
+        if last is None:
+            raise BusinessRuleError(
+                message="No Previous water reading found.Create lease with initial_water_reading first"
+            )
+        previous = last.current_reading
+
+        if req.current_reading < previous:
+            raise BusinessRuleError(
+                message=f"Current reading {req.current_reading} cannot be less "
+                f"than previous reading{previous}"
+            )
+
+        cfg = await self._buildings.get_latest_charge_config(unit.building_id)
+        if not cfg:
+            raise BusinessRuleError(
+                message="No charge configuration found for this building"
+            )
+
+        # get active lease for unit
+        lease = await self._lease.get_active_by_unit(unit_id)
+        if not lease:
+            raise BusinessRuleError(message="No active lease for this unit")
+        reading = await self._readings.create(
+            unit_id=unit_id,
+            lease_id=lease.id,
+            period=req.period,
+            previous_reading=previous,
+            rate_per_unit=cfg.water_rate_per_unit,
+            current_reading=req.current_reading,
+            entered_by=self._user.id,
+            entered_at=datetime.now(tz=timezone.utc),
+        )
+
+        # update ledger entry with water charge
+        ledger = await self._ledger.get_by_lease_period(lease.id, req.period)
+        if ledger:
+            await self._ledger.apply_water_charge(
+                ledger.id, reading.water_charge, reading.id
+            )
+        logger.info(
+            "water_reading_entered",
+            unit_id=str(unit_id),
+            period=req.period,
+            charge=str(reading.water_charge),
+        )
+        return WaterReadingsResponse.model_validate(reading)
