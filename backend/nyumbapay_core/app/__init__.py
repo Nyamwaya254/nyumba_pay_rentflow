@@ -5,10 +5,10 @@ This module ensures all ORM models are imported so that
 SQLAlchemy metadata is fully populated for Alembic autogeneration.
 """
 
-from nyumbapay_core.app.models.base import Base
+from app.models.base import Base
 
 # Import ALL models so they register with Base.metadata
-from nyumbapay_core.app.models.models import (
+from app.models.models import (
     User,
     Landlord,
     Building,
