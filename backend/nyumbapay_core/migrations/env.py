@@ -9,8 +9,8 @@ from sqlalchemy import pool  # noqa : F401
 
 from alembic import context
 
-from nyumbapay_core.app.core.config import get_settings
-from nyumbapay_core.app.models.base import Base
+from app.core.config import get_settings
+from app.models.base import Base
 
 _ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=_ENV_FILE, override=False)
