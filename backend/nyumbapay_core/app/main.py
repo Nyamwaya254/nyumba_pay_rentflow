@@ -74,3 +74,20 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+
+@app.get("/")
+async def root():
+    return {
+        "name": "NyumbaPay",
+        "mission": "Simplifying rent collection across Africa.",
+        "features": [
+            "M-Pesa Rent Payments",
+            "Automated Payment Verification",
+            "Tenant Management",
+            "Real-Time Reconciliation",
+            "Financial Reporting",
+        ],
+        "status": "operational",
+        "api_version": "v1",
+    }
