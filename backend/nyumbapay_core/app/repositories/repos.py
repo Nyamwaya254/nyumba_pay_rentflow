@@ -15,14 +15,14 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
-from nyumbapay_core.app.core.exceptions import ConflictError
-from nyumbapay_core.app.models.enums import (
+from app.core.exceptions import ConflictError
+from app.models.enums import (
     LeaseStatus,
     LedgerStatus,
     NotificationStatus,
     UnitStatus,
 )
-from nyumbapay_core.app.models.models import (
+from app.models.models import (
     Building,
     BuildingChargeConfig,
     Landlord,

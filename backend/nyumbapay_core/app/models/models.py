@@ -22,8 +22,8 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 
-from nyumbapay_core.app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
-from nyumbapay_core.app.models.enums import (
+from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.enums import (
     DepositStatus,
     LeaseStatus,
     LedgerStatus,

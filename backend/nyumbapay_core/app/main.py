@@ -7,10 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 import sentry_sdk
 import structlog
 
-from nyumbapay_core.app.core.config import get_settings
-from nyumbapay_core.app.core.database import close_db, close_redis, init_db, init_redis
-from nyumbapay_core.app.core.logging import configure_logging
-from nyumbapay_core.app.core.middleware import setup_middleware
+from app.core.config import get_settings
+from app.core.database import close_db, close_redis, init_db, init_redis
+from app.core.logging import configure_logging
+from app.core.middleware import setup_middleware
 
 
 logger = structlog.get_logger(__name__)

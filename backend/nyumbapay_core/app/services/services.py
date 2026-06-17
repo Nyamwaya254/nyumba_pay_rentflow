@@ -5,15 +5,15 @@ from decimal import Decimal
 import uuid
 import structlog
 
-from nyumbapay_core.app.core.exceptions import (
+from app.core.exceptions import (
     BusinessRuleError,
     ConflictError,
     ForbiddenError,
     NotFoundError,
     PaymentServiceError,
 )
-from nyumbapay_core.app.models.enums import LeaseStatus, UnitStatus, UserRole
-from nyumbapay_core.app.repositories.repos import (
+from app.models.enums import LeaseStatus, UnitStatus, UserRole
+from app.repositories.repos import (
     BuildingRepository,
     LandlordRepository,
     LeaseRepository,
@@ -23,15 +23,16 @@ from nyumbapay_core.app.repositories.repos import (
     UnitRepository,
     WaterReadingRepository,
 )
-from nyumbapay_core.app.repositories.user_repo import UserRepository
-from nyumbapay_core.app.models.models import Landlord, Lease, User
-from nyumbapay_core.app.schemas.validation import (
+from app.repositories.user_repo import UserRepository
+from app.models.models import Landlord, Lease, User
+from app.schemas.validation import (
     BuildingDetailResponse,
     CreateBuildingRequest,
     CreateLandlordRequest,
     CreateLeaseRequest,
     CreateTenantRequest,
     CreateUnitRequest,
+    CreateWaterReadingsRequest,
     LandlordListResponse,
     LandlordResponse,
     LeaseResponse,
@@ -41,9 +42,10 @@ from nyumbapay_core.app.schemas.validation import (
     UnitResponse,
     UpdateLandlordRequest,
     UpdateUnitRequest,
+    WaterReadingsResponse,
 )
-from nyumbapay_core.app.services.clerk_service import ClerkService
-from nyumbapay_core.app.services.payment_client import PaymentServiceClient
+from app.services.clerk_service import ClerkService
+from app.services.payment_client import PaymentServiceClient
 
 
 logger = structlog.get_logger(__name__)
@@ -637,3 +639,34 @@ class LeaseService:
             )
             for e in entries
         ]
+
+
+class WaterReadingService:
+    """Process montly water meter readings
+    Ensures:
+        - No duplicate reading for same unit/period.
+        - Current reading >= previous reading.
+        - An active lease exists.
+        - A building charge configuration (water rate) exists.
+        - Updates the corresponding rent ledger with the calculated water charge.
+    """
+
+    def __init__(
+        self,
+        reading_repo: WaterReadingRepository,
+        unit_repo: UnitRepository,
+        building_repo: BuildingRepository,
+        ledger_repo: LedgerRepository,
+        current_user: User,
+    ) -> None:
+        self._readings = reading_repo
+        self._units = unit_repo
+        self._buildings = building_repo
+        self._ledger = ledger_repo
+        self._user = current_user
+
+    async def enter_reading(
+        self, unit_id: uuid.UUID, req: CreateWaterReadingsRequest
+    ) -> WaterReadingsResponse:
+        """Submit a water reading"""
+        pass

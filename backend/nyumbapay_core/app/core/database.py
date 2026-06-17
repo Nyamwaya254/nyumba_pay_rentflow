@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from nyumbapay_core.app.core.config import Settings
+from app.core.config import Settings
 
 logger = structlog.get_logger(__name__)
 

@@ -26,8 +26,8 @@ from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 import structlog
 
-from nyumbapay_core.app.core.config import get_settings
-from nyumbapay_core.app.core.exceptions import AppError
+from app.core.config import get_settings
+from app.core.exceptions import AppError
 
 
 logger = structlog.get_logger(__name__)

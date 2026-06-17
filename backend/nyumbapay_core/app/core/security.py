@@ -13,7 +13,7 @@ import structlog
 import jwt
 from jwt import PyJWKClient, PyJWKClientError
 
-from nyumbapay_core.app.core.exceptions import AuthError
+from app.core.exceptions import AuthError
 
 logger = structlog.get_logger(__name__)
 

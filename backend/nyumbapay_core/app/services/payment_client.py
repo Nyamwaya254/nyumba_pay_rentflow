@@ -15,8 +15,8 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-from nyumbapay_core.app.core.config import Settings
-from nyumbapay_core.app.core.exceptions import (
+from app.core.config import Settings
+from app.core.exceptions import (
     PaymentServiceClientError,
     PaymentServiceError,
 )

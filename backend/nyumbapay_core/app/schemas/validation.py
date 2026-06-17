@@ -8,7 +8,7 @@ from typing import Any
 import uuid
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
-from nyumbapay_core.app.models.enums import UserRole
+from app.models.enums import UserRole
 
 """Not required since clerk owns the entire auth flow"""
 # Auth

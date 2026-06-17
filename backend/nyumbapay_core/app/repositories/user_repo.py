@@ -4,8 +4,8 @@ import uuid
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from nyumbapay_core.app.models.enums import UserRole
-from nyumbapay_core.app.models.models import User
+from app.models.enums import UserRole
+from app.models.models import User
 
 
 class UserRepository:

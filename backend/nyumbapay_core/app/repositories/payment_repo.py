@@ -1,3 +1,3 @@
-from nyumbapay_core.app.repositories.repos import PaymentRepository
+from app.repositories.repos import PaymentRepository
 
 __all__ = ["PaymentRepository"]

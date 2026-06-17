@@ -13,9 +13,9 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-from nyumbapay_core.app.core.config import Settings
-from nyumbapay_core.app.core.exceptions import ClerkError
-from nyumbapay_core.app.models.enums import UserRole
+from app.core.config import Settings
+from app.core.exceptions import ClerkError
+from app.models.enums import UserRole
 
 
 logger = structlog.get_logger(__name__)
