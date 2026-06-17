@@ -1,0 +1,76 @@
+"""FastAPI application factory- Nyumbapay core"""
+
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+import sentry_sdk
+import structlog
+
+from nyumbapay_core.app.core.config import get_settings
+from nyumbapay_core.app.core.database import close_db, close_redis, init_db, init_redis
+from nyumbapay_core.app.core.logging import configure_logging
+from nyumbapay_core.app.core.middleware import setup_middleware
+
+
+logger = structlog.get_logger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    settings = get_settings()
+    configure_logging(
+        log_level=settings.app_log_level,
+        json_logs=settings.is_production,
+    )
+    logger.info("rentflow_core_starting", env=settings.app_env)
+
+    if settings.sentry_dsn:
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            environment=settings.app_env,
+            traces_sample_rate=0.1,
+        )
+    try:
+        await init_db(settings)
+        await init_redis(settings)
+    except Exception:
+        logger.error("Rentflow_core_startup_failed", exc_info=True)
+        await close_db()
+        raise
+
+    logger.info("rentflow_core_ready")
+    yield
+    logger.info("rentflow_core_shutting_down")
+    await close_db()
+    await close_redis()
+    logger.info("rentflow_core_stopped")
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+
+    app = FastAPI(
+        title="Nyumbapay core API",
+        description="Multi-landlord rent management — core service.",
+        version="2.0.0",
+        lifespan=lifespan,
+        docs_url=None if settings.is_production else "/docs",
+        redoc_url=None if settings.is_production else "/redoc",
+        openapi_url=None if settings.is_production else "/openapi.json",
+    )
+
+    setup_middleware(app, redis_url=settings.redis_url_str)
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["https://app.rentflow.co.ke"],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    )
+
+    return app
+
+
+app = create_app()
