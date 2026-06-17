@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "rentflow-core"
+name = "nyumbapay-core"
 version = "1.0.0"
 requires-python = ">=3.12"
 dependencies = [
