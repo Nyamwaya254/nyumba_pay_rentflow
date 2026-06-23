@@ -44,6 +44,11 @@ class PaymentServiceClient:
             ),
         )
 
+    async def aclose(self) -> None:
+        """Close the underlying HTTP connection pool"""
+        await self._client.aclose()
+        logger.info("payment_client_closed")
+
     async def close(self) -> None:
         """Call on app shutdown to release connections"""
         await self._client.aclose()

@@ -3,6 +3,7 @@ Called during landlord onboarding to create the Clerk user account.
 Clerk manages credentials (passwords, MFA) — i only manage roles in  DB
 """
 
+import httpx
 import structlog
 from clerk_backend_api import Clerk
 from clerk_backend_api.models import CreateUserRequestBody, SDKError
@@ -25,7 +26,29 @@ class ClerkService:
     """Wrapper around Clerk Backend API"""
 
     def __init__(self, settings: Settings) -> None:
-        self._client = Clerk(bearer_auth=settings.clerk_secret_key)
+        self._http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                connect=5.0,  # time to establish a connection
+                read=10.0,  # time to receive the first response byte
+                write=5.0,  # time to send the request body
+                pool=5.0,  # time to acquire a connection from the pool
+            ),
+            limits=httpx.Limits(
+                max_connections=50,  # hard cap on open sockets
+                max_keepalive_connections=10,  # idle sockets held in pool
+                keepalive_expiry=30.0,  # seconds before idle socket closed
+            ),
+        )
+
+        self._client = Clerk(
+            bearer_auth=settings.clerk_secret_key,
+            async_client=self._http_client,  # SDK delegates all I/O here
+        )
+
+    async def aclose(self) -> None:
+        """Close the underlying HTTP connection pool"""
+        await self._http_client.aclose()
+        logger.info("clerk_servuce_closed")
 
     @retry(
         retry=retry_if_exception_type(ClerkError),

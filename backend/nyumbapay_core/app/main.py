@@ -12,6 +12,9 @@ from app.core.database import close_db, close_redis, init_db, init_redis
 from app.core.logging import configure_logging
 from app.core.middleware import setup_middleware
 
+from app.services.payment_client import PaymentServiceClient
+from app.services.clerk_service import ClerkService
+
 
 logger = structlog.get_logger(__name__)
 
@@ -23,7 +26,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         log_level=settings.app_log_level,
         json_logs=settings.is_production,
     )
-    logger.info("rentflow_core_starting", env=settings.app_env)
+    logger.info("nyumbapay_core_starting", env=settings.app_env)
 
     if settings.sentry_dsn:
         sentry_sdk.init(
@@ -31,20 +34,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             environment=settings.app_env,
             traces_sample_rate=0.1,
         )
+
+    # long lived HTTP clients -created once,shared across requests
+    app.state.payment_client = PaymentServiceClient(settings=settings)
+    app.state.clerk_service = ClerkService(settings=settings)
+
     try:
         await init_db(settings)
         await init_redis(settings)
     except Exception:
-        logger.error("Rentflow_core_startup_failed", exc_info=True)
+        logger.error("nyumbapay_core_startup_failed", exc_info=True)
+        await app.state.payment_client.aclose()
+        await app.state.clerk_service.aclose()
         await close_db()
+        await close_redis()
         raise
 
-    logger.info("rentflow_core_ready")
+    logger.info("nyumbapay_core_ready")
     yield
-    logger.info("rentflow_core_shutting_down")
+    logger.info("nyumbapay_core_shutting_down")
+    await app.state.payment_client.aclose()
+    await app.state.clerk_service.aclose()
     await close_db()
     await close_redis()
-    logger.info("rentflow_core_stopped")
+    logger.info("nyumbapay_core_stopped")
 
 
 def create_app() -> FastAPI:
@@ -64,7 +77,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["https://app.rentflow.co.ke"],
+        allow_origins=["https://app.nyumbapay.co.ke"],
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
         allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
