@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     sentry_dsn: str = ""
     otel_exporter_otlp_endpoint: str = ""
 
+    # redbeat
+    beat_lock_timeout: int = 30
+
+    # charge configs
+    garbage_charge: int = 500
+    water_charge: int = 200
+
     @model_validator(mode="after")
     def validate_production(self) -> "Settings":
         if self.app_env == "production" and not self.sentry_dsn:

@@ -14,6 +14,7 @@ from sqlalchemy import case, func, literal, select, text, update
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import joinedload
 
 from app.core.exceptions import ConflictError
 from app.models.enums import (
@@ -213,6 +214,35 @@ class BuildingRepository:
             .limit(1)
         )
         return result.scalar_one_or_none()
+
+    async def get_all_latest_charge_configs(self) -> list[BuildingChargeConfig]:
+        """Fetch the most recent charge configuration for every building in a single query
+        -Returns:
+            List of BuildingChargeConfig - one per building the most recent by effective from
+
+        """
+        ranked_cte = (
+            select(
+                BuildingChargeConfig.id.label("config_id"),
+                func.row_number()
+                .over(
+                    partition_by=BuildingChargeConfig.building_id,
+                    order_by=BuildingChargeConfig.effective_from.desc(),
+                )
+                .label("row_number"),
+            )
+        ).cte("ranked_configs")
+        # Join the CTE back to the ORM model so SQLAlchemy can hydrate full
+        # BuildingChargeConfig objects — not just the id and row number.
+        result = await self._session.execute(
+            select(BuildingChargeConfig)
+            .join(
+                ranked_cte,
+                ranked_cte.c.config_id == BuildingChargeConfig.id,
+            )
+            .where(ranked_cte.c.row_number == 1)
+        )
+        return list(result.scalars().all())
 
     async def create_charge_config(
         self,
@@ -441,6 +471,15 @@ class LeaseRepository:
             )
         )
         return result.scalar_one_or_none()
+
+    async def get_all_active_with_units(self) -> list[Lease]:
+        """Fetch all active leases with their associated unit pre-loaded"""
+        result = await self._session.execute(
+            select(Lease)
+            .options(joinedload(Lease.unit))
+            .where(Lease.status == LeaseStatus.ACTIVE)
+        )
+        return list(result.scalars().unique().all())
 
     async def get_by_account_reference(self, ref: str) -> Lease | None:
         """Find active lease by M‑Pesa account reference (e.g., 'PALM-A3')"""
