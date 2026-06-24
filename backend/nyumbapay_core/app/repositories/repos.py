@@ -493,8 +493,10 @@ class LeaseRepository:
                 )
                 raise ConflictError(
                     message=f"Account reference '{account_reference}' already exists.",
-                    field="account_reference",
-                    conflicting_value=account_reference,
+                    detail={
+                        "field": "account_reference",
+                        "conflicting_value": account_reference,
+                    },
                 ) from exc
 
             # Different integrity violation
@@ -916,6 +918,7 @@ class LedgerRepository:
             raise ValueError(
                 f"No ledger entry for lease {lease_id} for period {period}"
             )
+        # step 1: update the period being paid
         new_paid = entry.amount_paid + amount
         new_balance = entry.total_amount_due - new_paid
         status = self._compute_status(entry.total_amount_due, new_paid)
@@ -924,8 +927,50 @@ class LedgerRepository:
             .where(RentLedger.id == entry.id)
             .values(amount_paid=new_paid, balance=new_balance, status=status)
         )
+        # step 2: propagate to the next period if it exists
+        next_period = self._next_period(period)
+        next_entry = await self.get_by_lease_period(lease_id, next_period)
+        if next_entry:
+            # only carrry forward debt(positive balance)
+            # negative balance = overpayment = credit rolls forward too
+            carry_forward = new_balance if new_balance > 0 else Decimal("0")
+
+            new_next_total = (
+                next_entry.base_rent
+                + next_entry.water_charge
+                + next_entry.garbage_charge
+                + carry_forward
+            )
+            new_next_balance = new_next_total - next_entry.amount_paid
+            next_status = self._compute_status(new_next_total, next_entry.amount_paid)
+
+            await self._session.execute(
+                update(RentLedger)
+                .where(RentLedger.id == next_entry.id)
+                .values(
+                    previous_balance=carry_forward,
+                    total_amount_due=new_next_total,
+                    balance=new_next_balance,
+                    status=next_status,
+                )
+            )
+            logger.info(
+                "ledger_next_period_updated",
+                lease_id=str(lease_id),
+                paid_period=period,
+                next_period=next_period,
+                carry_forward=str(carry_forward),
+            )
         await self._session.refresh(entry)
         return entry
+
+    @staticmethod
+    def _next_period(period: str) -> str:
+        """Return the next YYYY-MM period string"""
+        year, month = int(period[:4]), int(period[5:])
+        if month == 12:
+            return f"{year + 1}-01"
+        return f"{year}-{month + 1:02d}"
 
     @staticmethod
     def _compute_status(total_due: Decimal, amount_paid: Decimal) -> LedgerStatus:
