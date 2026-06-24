@@ -1,6 +1,7 @@
 """Application configuration - Rentflow core"""
 
 from __future__ import annotations
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -57,8 +58,8 @@ class Settings(BaseSettings):
     beat_lock_timeout: int = 30
 
     # charge configs
-    garbage_charge: int = 500
-    water_charge: int = 200
+    garbage_charge: Decimal = Decimal("500")
+    water_charge: Decimal = Decimal("200")
 
     @model_validator(mode="after")
     def validate_production(self) -> "Settings":

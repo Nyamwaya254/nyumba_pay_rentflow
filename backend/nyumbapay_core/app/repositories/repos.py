@@ -852,6 +852,19 @@ class LedgerRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_periods_for_lease(
+        self, lease_id: uuid.UUID, current_period: str, prev_period: str
+    ) -> tuple[RentLedger | None, RentLedger | None]:
+        """Fetch current and previous period ledger entries in one query"""
+        result = await self._session.execute(
+            select(RentLedger).where(
+                RentLedger.lease_id == lease_id,
+                RentLedger.period.in_([current_period, prev_period]),
+            )
+        )
+        rows = {e.period: e for e in result.scalars().all()}
+        return rows.get(current_period), rows.get(prev_period)
+
     async def get_latest_by_lease(self, lease_id: uuid.UUID) -> RentLedger | None:
         """Return the most recent (highest period) ledger entry."""
         result = await self._session.execute(
@@ -972,7 +985,7 @@ class LedgerRepository:
         if next_entry:
             # only carrry forward debt(positive balance)
             # negative balance = overpayment = credit rolls forward too
-            carry_forward = new_balance if new_balance > 0 else Decimal("0")
+            carry_forward = new_balance
 
             new_next_total = (
                 next_entry.base_rent
