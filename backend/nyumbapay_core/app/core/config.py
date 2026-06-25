@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     payment_service_api_key: str = Field(min_length=32)
     payment_events_channel: str = ""
 
+    # ── Africa's Talking ───────────────────────────────────────
+    at_api_key: str
+    at_username: str
+    at_sender_id: str = "NYUMBAFLOW"
+    at_whatsapp_url: str = "https://chat.africastalking.com/whatsapp/message"
+    at_whatsapp_number: str = ""
+
     # celery
     celery_broker_url: str = ""
     celery_result_backend: str = ""
