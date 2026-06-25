@@ -14,6 +14,7 @@ from app.core.middleware import setup_middleware
 
 from app.services.payment_client import PaymentServiceClient
 from app.services.clerk_service import ClerkService
+from nyumbapay_core.app.services.notification_service import NotificationService
 
 
 logger = structlog.get_logger(__name__)
@@ -38,6 +39,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # long lived HTTP clients -created once,shared across requests
     app.state.payment_client = PaymentServiceClient(settings=settings)
     app.state.clerk_service = ClerkService(settings=settings)
+    app.state.notification_service = NotificationService(settings=settings)
 
     try:
         await init_db(settings)
@@ -46,12 +48,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.error("nyumbapay_core_startup_failed", exc_info=True)
         await app.state.payment_client.aclose()
         await app.state.clerk_service.aclose()
+        await app.state.notification_service.aclose()
         await close_db()
         await close_redis()
         raise
 
     logger.info("nyumbapay_core_ready")
     yield
+
+    # graceful shutdown
     logger.info("nyumbapay_core_shutting_down")
     await app.state.payment_client.aclose()
     await app.state.clerk_service.aclose()
