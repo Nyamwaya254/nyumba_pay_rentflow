@@ -2,8 +2,10 @@
 
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 import sentry_sdk
 import structlog
 
@@ -109,3 +111,17 @@ async def root():
         "status": "operational",
         "api_version": "v1",
     }
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        media_type="application/problem+json",
+        content={
+            "type": f"https://docs.nyumbapay.co.ke/errors/http-{exc.status_code}",
+            "title": exc.detail,
+            "status": exc.status_code,
+            "instance": request.url.path,
+        },
+    )
