@@ -50,6 +50,7 @@ RedisDep = Annotated[aioredis.Redis, Depends(get_redis)]
 
 # Auth
 async def get_current_user(
+    request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Security(_bearer)],
     settings: SettingsDep,
     db: DbSessionDep,
@@ -75,6 +76,11 @@ async def get_current_user(
 
     if user is None or not user.is_active:
         raise AuthError(message="User not found or deactivated")
+
+    # Stamp request.state so _rate_limit_key can read it without
+    # re-decoding the JWT. This runs before the limiter check because
+    # FastAPI resolves dependencies before calling the decorated handler.
+    request.state.user_id = str(user.id)
 
     structlog.contextvars.bind_contextvars(
         user_id=str(user.id), clerk_user_id=clerk_user_id, role=user.role.value

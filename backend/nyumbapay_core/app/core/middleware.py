@@ -22,7 +22,6 @@ from starlette.types import ExceptionHandler
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 import structlog
 
@@ -32,10 +31,25 @@ from app.core.exceptions import AppError
 
 logger = structlog.get_logger(__name__)
 
+
+def _rate_limit_key(request: Request) -> str:
+    """Rate limit key selector
+    Authenticated requests are keyed by user ID — ensuring limits are
+    per-user regardless of which IP they connect from (mobile clients
+    change IP frequently). Unauthenticated requests fall back to IP.
+    """
+    user_id = getattr(request.state, "user_id", None)
+    if user_id is not None:  # Explicitly checks for "user is logged in"
+        return f"user:{user_id}"
+    if request.client:
+        return f"ip:{request.client.host}"
+    return "ip:unknown"
+
+
 # Rate Limiter
-# Uses client IP as the rate limit key (X‑Forwarded‑For respects reverse proxies)
+# Uses user_id and falls toclient IP as the rate limit key (X‑Forwarded‑For respects reverse proxies)
 limiter = Limiter(
-    key_func=get_remote_address,
+    key_func=_rate_limit_key,
     default_limits=["300/minute"],
     storage_uri=get_settings().redis_url_str,  # set at construction time
 )
