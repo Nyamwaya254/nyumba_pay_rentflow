@@ -4,6 +4,7 @@ Strict validation on all inputs.
 
 from datetime import date, datetime
 from decimal import Decimal
+import re
 from typing import Any
 import uuid
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
@@ -135,6 +136,16 @@ class CreateBuildingRequest(BaseModel):
         pattern=r"^[A-Z0-9]+$",
         description="Uppercase alphanumeric e.g. PALM",
     )
+
+    @field_validator("code")
+    @classmethod
+    def code_must_be_uppercase_alphanumeric(cls, v: str) -> str:
+        if not re.match(r"^[A-Z0-9]{2,10}$", v):
+            raise ValueError(
+                "Building code must be 2-10 uppercase alphanumeric characters"
+            )
+        return v
+
     garbage_charge: Decimal = Field(default=Decimal("500.00"), ge=0)
     water_rate_per_unit: Decimal = Field(
         gt=0,
