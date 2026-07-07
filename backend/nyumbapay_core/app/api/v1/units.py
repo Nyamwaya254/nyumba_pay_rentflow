@@ -4,6 +4,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query, status
 
 from app.core.dependencies import LandlordUserDep, get_unit_service
+from app.core.middleware import limiter
 from app.models.enums import UnitStatus
 from app.schemas.validation import (
     CreateUnitRequest,
@@ -17,6 +18,7 @@ units_router = APIRouter(prefix="/buildings/{building_id}/units", tags=["units"]
 
 
 @units_router.post("", status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")
 async def create_unit(
     building_id: uuid.UUID,
     request: CreateUnitRequest,
@@ -30,6 +32,7 @@ async def create_unit(
 
 
 @units_router.get("")
+@limiter.limit("100/minute")
 async def list_units(
     building_id: uuid.UUID,
     _: LandlordUserDep,
@@ -47,6 +50,7 @@ standalone_units_router = APIRouter(prefix="/units", tags=["units"])
 
 
 @standalone_units_router.get("/{unit_id}", summary="Get unit detil")
+@limiter.limit("120/minute")
 async def get_unit(
     unit_id: uuid.UUID,
     _: LandlordUserDep,
@@ -57,6 +61,7 @@ async def get_unit(
 
 
 @standalone_units_router.patch("/{unit_id}", summary="Update unit rent amount")
+@limiter.limit("30/minute")
 async def update_unit(
     unit_id: uuid.UUID,
     request: UpdateUnitRequest,
