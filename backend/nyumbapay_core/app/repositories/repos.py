@@ -875,12 +875,16 @@ class LedgerRepository:
         )
         return result.scalar_one_or_none()
 
-    async def list_by_lease(self, lease_id: uuid.UUID) -> Sequence[RentLedger]:
+    async def list_by_lease(
+        self, lease_id: uuid.UUID, offset: int = 0, limit: int = 12
+    ) -> Sequence[RentLedger]:
         """Returns the full payment history for a lease,newest first"""
         result = await self._session.execute(
             select(RentLedger)
             .where(RentLedger.lease_id == lease_id)
             .order_by(RentLedger.period.desc())
+            .offset(offset)
+            .limit(limit)
         )
         return result.scalars().all()
 
@@ -891,7 +895,6 @@ class LedgerRepository:
         base_rent: Decimal,
         garbage_charge: Decimal,
         previous_balance: Decimal,
-        water_charge: Decimal = Decimal("0"),
     ) -> RentLedger:
         """Creates a new monthly ledger entry.
         The ledger is created at month start, water readings come later in the month

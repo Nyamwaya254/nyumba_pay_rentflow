@@ -652,9 +652,15 @@ class LeaseService:
         await self._units.set_status(lease.unit_id, UnitStatus.VACANT)
         logger.info("lease_terminated", lease_id=str(lease_id))
 
-    async def get_ledger(self, lease_id: uuid.UUID) -> list[LedgerEntryResponse]:
+    async def get_ledger(
+        self, lease_id: uuid.UUID, page: int = 1, page_size: int = 12
+    ) -> list[LedgerEntryResponse]:
         """Return all rent ledger entries for a lease, ordered by period descending"""
-        entries = await self._ledger.list_by_lease(lease_id)
+        entries = await self._ledger.list_by_lease(
+            lease_id,
+            offset=(page - 1) * page_size,
+            limit=page_size,
+        )
         return [
             LedgerEntryResponse(
                 id=e.id,
