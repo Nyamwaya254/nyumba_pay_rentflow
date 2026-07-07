@@ -5,7 +5,11 @@ from fastapi import APIRouter, Depends, Query, status
 
 from app.core.dependencies import LandlordUserDep, get_tenant_service
 from app.core.middleware import limiter
-from app.schemas.validation import CreateTenantRequest, PaginatedResponse
+from app.schemas.validation import (
+    CreateTenantRequest,
+    PaginatedResponse,
+    TenantResponse,
+)
 from app.services.services import TenantService
 
 
@@ -14,7 +18,7 @@ tenants_router = APIRouter(prefix="/tenants", tags=["tenants"])
 
 @tenants_router.post(
     "",
-    response_model=CreateTenantRequest,
+    response_model=TenantResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Register a new tenant",
 )
@@ -23,7 +27,7 @@ async def create_tenant(
     request: CreateTenantRequest,
     _: LandlordUserDep,
     service: TenantService = Depends(get_tenant_service),
-):
+) -> TenantResponse:
     """20/minute per landlord user"""
     return await service.create(request)
 
