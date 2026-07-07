@@ -8,16 +8,17 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as aioredis
 
-from nyumbapay_core.app import User
-from nyumbapay_core.app.core.config import Settings, get_settings
-from nyumbapay_core.app.core.database import get_db_session, get_redis
-from nyumbapay_core.app.core.exceptions import AuthError, ForbiddenError
-from nyumbapay_core.app.core.security import get_token_verifier
-from nyumbapay_core.app.models.enums import UserRole
-from nyumbapay_core.app.repositories.building_repo import BuildingRepository
-from nyumbapay_core.app.repositories.landlord_repo import LandlordRepository
-from nyumbapay_core.app.repositories.report_repo import ReportRepository
-from nyumbapay_core.app.repositories.repos import (
+from app import User
+from app.core.config import Settings, get_settings
+from app.core.database import get_db_session, get_redis
+from app.core.exceptions import AuthError, ForbiddenError
+from app.core.idempotency import IdempotencyService
+from app.core.security import get_token_verifier
+from app.models.enums import UserRole
+from app.repositories.building_repo import BuildingRepository
+from app.repositories.landlord_repo import LandlordRepository
+from app.repositories.report_repo import ReportRepository
+from app.repositories.repos import (
     LeaseRepository,
     LedgerRepository,
     PaymentRepository,
@@ -25,9 +26,9 @@ from nyumbapay_core.app.repositories.repos import (
     UnitRepository,
     WaterReadingRepository,
 )
-from nyumbapay_core.app.repositories.user_repo import UserRepository
-from nyumbapay_core.app.services.clerk_service import ClerkService
-from nyumbapay_core.app.services.services import (
+from app.repositories.user_repo import UserRepository
+from app.services.clerk_service import ClerkService
+from app.services.services import (
     BuildingService,
     LandlordService,
     LeaseService,
@@ -214,4 +215,17 @@ def get_reconciliation_service(
 
 def get_report_service(db: DbSessionDep, current_user: LandlordUserDep):
     """Produce a ReportService scoped to the authenticated landlord"""
-    return ReportService(repo=ReportRepository(db), current_user=current_user)
+    return ReportService(
+        repo=ReportRepository(db),
+        landlord_repo=LandlordRepository(db),
+        current_user=current_user,
+    )
+
+
+def get_idempotency_service(request: Request) -> IdempotencyService:
+    """Retrieve the idempotencyservice backed by the shared Redis client"""
+
+    return IdempotencyService(request.app.state.redis)
+
+
+IdempotencyDep = Annotated[IdempotencyService, Depends(get_idempotency_service)]

@@ -12,6 +12,7 @@ from app.core.exceptions import (
     NotFoundError,
     PaymentServiceError,
 )
+from app.core.idempotency import IdempotencyService
 from app.models.enums import LeaseStatus, UnitStatus, UserRole
 from app.repositories.repos import (
     BuildingRepository,
@@ -501,6 +502,7 @@ class LeaseService:
         ledger_repo: LedgerRepository,
         water_readings_repo: WaterReadingRepository,
         current_user: User,
+        idempotency: IdempotencyService | None = None,
     ):
         self._leases = lease_repo
         self._units = unit_repo
@@ -509,6 +511,7 @@ class LeaseService:
         self._water_readings = water_readings_repo
         self._ledger = ledger_repo
         self._user = current_user
+        self._idempotency = idempotency  # none = idempotency disabled
 
     def _current_period(self) -> str:
         """Return YYYY‑MM string for the current UTC month"""
@@ -516,9 +519,24 @@ class LeaseService:
         return f"{now.year}-{now.month:02d}"
 
     async def create(
-        self, unit_id: uuid.UUID, request: CreateLeaseRequest
+        self,
+        unit_id: uuid.UUID,
+        request: CreateLeaseRequest,
+        idempotency_key: str | None = None,
     ) -> LeaseResponse:
         """Start a new lease on a vacant unit"""
+
+        # idempotency check-before any db work
+        if idempotency_key and self._idempotency:
+            cached = await self._idempotency.get_cached_response(idempotency_key)
+            if cached:
+                logger.info(
+                    "lease_create_idempotent_replay",
+                    idempotency_key=idempotency_key,
+                    unit_id=str(unit_id),
+                )
+                return LeaseResponse.model_validate(cached)
+
         unit = await self._units.get_by_id(unit_id)
         if not unit:
             raise NotFoundError(message=f"Unit {unit_id} not found")
@@ -569,13 +587,21 @@ class LeaseService:
             garbage_charge=cfg.garbage_charge,
             previous_balance=Decimal("0"),
         )
+        response = LeaseResponse.model_validate(lease)
+
+        if idempotency_key and self._idempotency:
+            await self._idempotency.store_response(
+                idempotency_key, response.model_dump(mode="json")
+            )
         logger.info(
             "lease_created",
             lease_id=str(lease.id),
             account_ref=lease.account_reference,
             unit_id=str(unit_id),
+            period=period,
+            idempotency_key=idempotency_key,
         )
-        return LeaseResponse.model_validate(lease)
+        return response
 
     async def _create_lease_with_ref(
         self,
