@@ -1,7 +1,7 @@
 """Leases Router"""
 
 import uuid
-from fastapi import APIRouter, Depends, Header, Query, status
+from fastapi import APIRouter, Depends, Header, Query, Request, status
 
 from app.core.dependencies import LandlordUserDep, get_lease_service
 from app.core.middleware import limiter
@@ -21,14 +21,15 @@ leases_router = APIRouter(prefix="/units/{unit_id}/leases", tags=["leases"])
 )
 @limiter.limit("10/minute")
 async def create_lease(
+    request: Request,
     unit_id: uuid.UUID,
-    request: CreateLeaseRequest,
+    payload: CreateLeaseRequest,
     _: LandlordUserDep,
     service: LeaseService = Depends(get_lease_service),
     idempotency_key: str | None = Header(None, alias="Idempotency-key"),
 ) -> LeaseResponse:
     """Create the lease,marks unit as occupied, sends initial water reading"""
-    return await service.create(unit_id, request, idempotency_key=idempotency_key)
+    return await service.create(unit_id, payload, idempotency_key=idempotency_key)
 
 
 standalone_leases_router = APIRouter(prefix="/leases", tags=["leases"])
@@ -39,6 +40,7 @@ standalone_leases_router = APIRouter(prefix="/leases", tags=["leases"])
 )
 @limiter.limit("5/minute")
 async def terminate_lease(
+    request: Request,
     lease_id: uuid.UUID,
     _: LandlordUserDep,
     service: LeaseService = Depends(get_lease_service),
@@ -54,6 +56,7 @@ async def terminate_lease(
 )
 @limiter.limit("60/minute")
 async def get_ledger(
+    request: Request,
     lease_id: uuid.UUID,
     _: LandlordUserDep,
     service: LeaseService = Depends(get_lease_service),

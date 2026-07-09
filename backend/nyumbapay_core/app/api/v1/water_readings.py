@@ -1,7 +1,7 @@
 """Water Readings Router"""
 
 import uuid
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 
 from app.core.dependencies import LandlordUserDep, get_water_reading_service
 from app.core.middleware import limiter
@@ -22,8 +22,9 @@ water_readings_router = APIRouter(
 )
 @limiter.limit("30/minute")
 async def enter_water_reading(
+    request: Request,
     unit_id: uuid.UUID,
-    request: CreateWaterReadingsRequest,
+    payload: CreateWaterReadingsRequest,
     _: LandlordUserDep,
     service: WaterReadingService = Depends(get_water_reading_service),
 ) -> WaterReadingsResponse:
@@ -31,4 +32,4 @@ async def enter_water_reading(
     from last period. System computes units_consumed × rate and updates
     the rent_ledger entry for this period."""
 
-    return await service.enter_reading(unit_id, request)
+    return await service.enter_reading(unit_id, payload)

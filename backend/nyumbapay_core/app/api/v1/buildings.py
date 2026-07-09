@@ -1,7 +1,7 @@
 """Buildings router"""
 
 import uuid
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 
 from app.core.middleware import limiter
 from app.schemas.validation import (
@@ -23,14 +23,15 @@ buildings_router = APIRouter(prefix="/buildings", tags=["buildings"])
 )
 @limiter.limit("20/minute")
 async def create_building(
-    request: CreateBuildingRequest,
+    request: Request,
+    payload: CreateBuildingRequest,
     _: LandlordUserDep,
     service: BuildingService = Depends(get_building_service),
 ) -> BuildingDetailResponse:
     """Create building with charge config(water rate + garbage)
     20/minute per landlord user
     """
-    return await service.create(request)
+    return await service.create(payload)
 
 
 @buildings_router.get(
@@ -40,6 +41,7 @@ async def create_building(
 )
 @limiter.limit("100/minute")
 async def list_buildings(
+    request: Request,
     _: LandlordUserDep,
     service: BuildingService = Depends(get_building_service),
     page: int = Query(1, ge=1),
@@ -56,6 +58,7 @@ async def list_buildings(
 )
 @limiter.limit("120/minute")
 async def get_building(
+    request: Request,
     building_id: uuid.UUID,
     _: LandlordUserDep,
     service: BuildingService = Depends(get_building_service),

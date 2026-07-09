@@ -1,6 +1,6 @@
 """Reports Router"""
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from app.core.dependencies import LandlordUserDep, get_report_service
 from app.core.middleware import limiter
@@ -13,6 +13,7 @@ reports_router = APIRouter(prefix="/reports", tags=["reports"])
 @reports_router.get("/defaulters", response_model=DefaulterResponse)
 @limiter.limit("20/minute")
 async def defaulters(
+    request: Request,
     _: LandlordUserDep,
     service: ReportService = Depends(get_report_service),
     period: str = Query(
@@ -30,6 +31,7 @@ async def defaulters(
 )
 @limiter.limit("20/minute")
 async def occupancy(
+    request: Request,
     _: LandlordUserDep,
     service: ReportService = Depends(get_report_service),
 ) -> list[OccupancyResponse]:
@@ -40,6 +42,7 @@ async def occupancy(
 @reports_router.get("/revenue", response_model=RevenueResponse)
 @limiter.limit("20/minute")
 async def revenue(
+    request: Request,
     _: LandlordUserDep,
     service: ReportService = Depends(get_report_service),
     period: str = Query(..., pattern=r"^\d{4}-\d{2}$"),

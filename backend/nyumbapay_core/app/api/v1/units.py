@@ -1,7 +1,7 @@
 """Units Router"""
 
 import uuid
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 
 from app.core.dependencies import LandlordUserDep, get_unit_service
 from app.core.middleware import limiter
@@ -20,20 +20,22 @@ units_router = APIRouter(prefix="/buildings/{building_id}/units", tags=["units"]
 @units_router.post("", status_code=status.HTTP_201_CREATED)
 @limiter.limit("30/minute")
 async def create_unit(
+    request: Request,
     building_id: uuid.UUID,
-    request: CreateUnitRequest,
+    payload: CreateUnitRequest,
     _: LandlordUserDep,
     service: UnitService = Depends(get_unit_service),
 ):
     """Each unit has its own rent_amount.
     A1 can be 45000,b2 can be 20000 - set individually
     """
-    return await service.create(building_id, request)
+    return await service.create(building_id, payload)
 
 
 @units_router.get("")
 @limiter.limit("100/minute")
 async def list_units(
+    request: Request,
     building_id: uuid.UUID,
     _: LandlordUserDep,
     service: UnitService = Depends(get_unit_service),
@@ -52,6 +54,7 @@ standalone_units_router = APIRouter(prefix="/units", tags=["units"])
 @standalone_units_router.get("/{unit_id}", summary="Get unit detil")
 @limiter.limit("120/minute")
 async def get_unit(
+    request: Request,
     unit_id: uuid.UUID,
     _: LandlordUserDep,
     service: UnitService = Depends(get_unit_service),
@@ -63,10 +66,11 @@ async def get_unit(
 @standalone_units_router.patch("/{unit_id}", summary="Update unit rent amount")
 @limiter.limit("30/minute")
 async def update_unit(
+    request: Request,
     unit_id: uuid.UUID,
-    request: UpdateUnitRequest,
+    payload: UpdateUnitRequest,
     _: LandlordUserDep,
     service: UnitService = Depends(get_unit_service),
 ):
     """Update unit rent amount endpoint"""
-    return await service.update(unit_id, request)
+    return await service.update(unit_id, payload)

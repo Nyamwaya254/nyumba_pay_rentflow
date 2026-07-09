@@ -1,7 +1,7 @@
 """Tenants Router"""
 
 import uuid
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 
 from app.core.dependencies import LandlordUserDep, get_tenant_service
 from app.core.middleware import limiter
@@ -24,17 +24,19 @@ tenants_router = APIRouter(prefix="/tenants", tags=["tenants"])
 )
 @limiter.limit("20/minute")
 async def create_tenant(
-    request: CreateTenantRequest,
+    request: Request,
+    payload: CreateTenantRequest,
     _: LandlordUserDep,
     service: TenantService = Depends(get_tenant_service),
 ) -> TenantResponse:
     """20/minute per landlord user"""
-    return await service.create(request)
+    return await service.create(payload)
 
 
 @tenants_router.get("", summary="List all tenants(paginated)")
 @limiter.limit("100/minute")
 async def list_tenants(
+    request: Request,
     _: LandlordUserDep,
     service: TenantService = Depends(get_tenant_service),
     page: int = Query(1, ge=1),
@@ -47,6 +49,7 @@ async def list_tenants(
 @tenants_router.get("/{tenant_id}", summary="Get tenant detail")
 @limiter.limit("120/minute")
 async def get_tenant(
+    request: Request,
     tenant_id: uuid.UUID,
     _: LandlordUserDep,
     service: TenantService = Depends(get_tenant_service),

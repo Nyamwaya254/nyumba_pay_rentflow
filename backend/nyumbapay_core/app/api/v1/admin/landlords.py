@@ -1,7 +1,7 @@
 """Admin Router"""
 
 import uuid
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 import structlog
 
 from app.core.dependencies import SuperAdminDep, get_landlord_service
@@ -24,13 +24,14 @@ logger = structlog.get_logger(__name__)
 )
 @limiter.limit("10/minute")
 async def create_landlord(
-    request: CreateLandlordRequest,
+    request: Request,
+    payload: CreateLandlordRequest,
     _: SuperAdminDep,
     http_response: Response,
     service: LandlordService = Depends(get_landlord_service),
 ) -> LandlordResponse:
     """10/minute per super-admin user"""
-    result, c2b_registered = await service.create_landlord(request)
+    result, c2b_registered = await service.create_landlord(payload)
     if not c2b_registered:
         http_response.headers["warning"] = (
             "299 nyumbapay"
@@ -45,6 +46,7 @@ async def create_landlord(
 )
 @limiter.limit("60/minute")
 async def list_landlords(
+    request: Request,
     _: SuperAdminDep,
     service: LandlordService = Depends(get_landlord_service),
     page: int = Query(1, ge=1),
@@ -61,6 +63,7 @@ async def list_landlords(
 )
 @limiter.limit("120/minute")
 async def get_landlord(
+    request: Request,
     landlord_id: uuid.UUID,
     _: SuperAdminDep,
     service: LandlordService = Depends(get_landlord_service),
@@ -76,13 +79,14 @@ async def get_landlord(
 )
 @limiter.limit("20/minute")
 async def update_landlord(
+    request: Request,
     landlord_id: uuid.UUID,
-    request: UpdateLandlordRequest,
+    payload: UpdateLandlordRequest,
     _: SuperAdminDep,
     service: LandlordService = Depends(get_landlord_service),
 ) -> LandlordResponse:
     """20/minute per super-admin user"""
-    return await service.update_landlord(landlord_id, request)
+    return await service.update_landlord(landlord_id, payload)
 
 
 @admin_router.delete(
@@ -92,6 +96,7 @@ async def update_landlord(
 )
 @limiter.limit("5/minute")
 async def deactivate_landlord(
+    request: Request,
     landlord_id: uuid.UUID,
     _: SuperAdminDep,
     service: LandlordService = Depends(get_landlord_service),
@@ -105,6 +110,7 @@ async def deactivate_landlord(
 )
 @limiter.limit("5/minute")
 async def retry_registration(
+    request: Request,
     landlord_id: uuid.UUID,
     _: SuperAdminDep,
     service: LandlordService = Depends(get_landlord_service),
