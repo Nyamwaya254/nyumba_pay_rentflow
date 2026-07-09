@@ -93,18 +93,21 @@ CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
 
 async def require_super_admin(current_user: CurrentUserDep):
+    """Requires user to be a super admin"""
     if current_user.role != UserRole.SUPER_ADMIN:
         raise ForbiddenError(message="Super-admin access required")
     return current_user
 
 
 async def require_landlord(current_user: CurrentUserDep):
+    """Requires user to be a landlord"""
     if current_user.role != UserRole.LANDLORD:
         raise ForbiddenError(message="Landlord access required")
     return current_user
 
 
 async def require_authenticated(current_user: CurrentUserDep) -> User:
+    """User must be authenticated"""
     return current_user
 
 
@@ -188,7 +191,7 @@ def get_lease_service(db: DbSessionDep, current_user: LandlordUserDep):
     )
 
 
-def get_water_reading_service(db: DbSessionDep, current_user=Depends(require_landlord)):
+def get_water_reading_service(db: DbSessionDep, current_user: LandlordUserDep):
     """Produce a WaterReadingService scoped to the authenticated landlord"""
     return WaterReadingService(
         reading_repo=WaterReadingRepository(db),
@@ -200,9 +203,7 @@ def get_water_reading_service(db: DbSessionDep, current_user=Depends(require_lan
     )
 
 
-def get_reconciliation_service(
-    db: DbSessionDep, current_user=Depends(require_landlord)
-):
+def get_reconciliation_service(db: DbSessionDep, current_user: LandlordUserDep):
     """Produce a ReconciliationService scoped to the authenticated landlord"""
     return ReconciliationService(
         payment_repo=PaymentRepository(db),
