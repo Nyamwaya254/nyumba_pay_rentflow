@@ -203,17 +203,6 @@ def get_water_reading_service(db: DbSessionDep, current_user: LandlordUserDep):
     )
 
 
-def get_reconciliation_service(db: DbSessionDep, current_user: LandlordUserDep):
-    """Produce a ReconciliationService scoped to the authenticated landlord"""
-    return ReconciliationService(
-        payment_repo=PaymentRepository(db),
-        ledger_repo=LedgerRepository(db),
-        lease_repo=LeaseRepository(db),
-        landlord_repo=LandlordRepository(db),
-        current_user=current_user,
-    )
-
-
 def get_report_service(db: DbSessionDep, current_user: LandlordUserDep):
     """Produce a ReportService scoped to the authenticated landlord"""
     return ReportService(
@@ -230,3 +219,17 @@ def get_idempotency_service(request: Request) -> IdempotencyService:
 
 
 IdempotencyDep = Annotated[IdempotencyService, Depends(get_idempotency_service)]
+
+
+def get_reconciliation_service(
+    db: DbSessionDep, current_user: LandlordUserDep, idempotency: IdempotencyDep
+):
+    """Produce a ReconciliationService scoped to the authenticated landlord"""
+    return ReconciliationService(
+        payment_repo=PaymentRepository(db),
+        ledger_repo=LedgerRepository(db),
+        lease_repo=LeaseRepository(db),
+        landlord_repo=LandlordRepository(db),
+        current_user=current_user,
+        idempotency=idempotency,
+    )

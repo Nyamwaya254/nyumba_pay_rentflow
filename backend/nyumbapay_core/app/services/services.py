@@ -778,12 +778,14 @@ class ReconciliationService:
         lease_repo: LeaseRepository,
         landlord_repo: LandlordRepository,
         current_user: User,
+        idempotency: IdempotencyService | None = None,
     ) -> None:
         self._payments = payment_repo
         self._ledger = ledger_repo
         self._leases = lease_repo
         self._landlords = landlord_repo
         self._user = current_user
+        self._idempotency = idempotency
 
     async def _get_landlord(self):
         """GEt landlord record for currnt user"""
@@ -808,7 +810,10 @@ class ReconciliationService:
         )
 
     async def manual_match(
-        self, payment_id: uuid.UUID, req: ManualMatchRequest
+        self,
+        payment_id: uuid.UUID,
+        req: ManualMatchRequest,
+        idempotency_key: str | None = None,
     ) -> PaymentResponse:
         """Manually reconcile a payment with a lease and a specific period
         Steps:
@@ -817,7 +822,17 @@ class ReconciliationService:
             3. Apply payment amount to the specified period's ledger entry.
             4. Mark payment as reconciled.
         """
-
+        # idempotency check before any DB work
+        if idempotency_key and self._idempotency:
+            cached = await self._idempotency.get_cached_response(idempotency_key)
+            if cached:
+                logger.info(
+                    "manual_match_idempotency_replay",
+                    idempotency_key=idempotency_key,
+                    payment_id=str(payment_id),
+                )
+                return PaymentResponse.model_validate(cached)
+        # validation
         landlord = await self._get_landlord()
         payment = await self._payments.get_by_id(payment_id)
         if not payment:
@@ -830,6 +845,8 @@ class ReconciliationService:
         lease = await self._leases.get_by_id(req.lease_id)
         if not lease:
             raise NotFoundError(message=f"Lease {req.lease_id} not found")
+
+        # writes
         await self._ledger.apply_payment(req.lease_id, req.period, payment.amount)
         await self._payments.reconcile(payment_id, req.lease_id, req.period)
 
@@ -838,8 +855,17 @@ class ReconciliationService:
             payment_id=str(payment_id),
             lease_id=str(req.lease_id),
         )
+
+        # Re-fetch after write so response reflects the committed state
         payment = await self._payments.get_by_id(payment_id)
-        return PaymentResponse.model_validate(payment)
+        response = PaymentResponse.model_validate(payment)
+
+        # cache result for idempotent replay
+        if idempotency_key and self._idempotency:
+            await self._idempotency.store_response(
+                idempotency_key, response.model_dump(mode="json")
+            )
+        return response
 
 
 class ReportService:
